@@ -1,0 +1,209 @@
+' Read-only BlueZ adapter snapshots over system D-Bus; no discovery is started.
+Public Class BluetoothKitLinuxBluetoothAdapter
+    Public Property ObjectPath As String
+    Public Property Address As String
+    Public Property Name As Optional Of String
+    Public Property Alias As Optional Of String
+    Public Property Powered As Optional Of Boolean
+    Public Property Discovering As Optional Of Boolean
+    Public Property Discoverable As Optional Of Boolean
+End Class
+
+#If TargetLinux Then
+Sequential Structure BluetoothKitLinuxNativeError
+    Domain As UInt32
+    Code As Int32
+    Message As Ptr
+End Structure
+Private Optional Declare Function BluetoothKitLinuxNativeBus Lib "libgio-2.0.so.0" Alias "g_bus_get_sync" (busType As Int32, cancellable As Ptr, ByRef failure As Ptr) As Ptr
+Private Optional Declare Function BluetoothKitLinuxNativeCall Lib "libgio-2.0.so.0" Alias "g_dbus_connection_call_sync" (connection As Ptr, busName As CString, objectPath As CString, interfaceName As CString, methodName As CString, parameters As Ptr, replyType As Ptr, callFlags As Int32, timeoutMilliseconds As Int32, cancellable As Ptr, ByRef failure As Ptr) As Ptr
+Private Optional Declare Sub BluetoothKitLinuxNativeObjectUnref Lib "libgobject-2.0.so.0" Alias "g_object_unref" (obj As Ptr)
+Private Optional Declare Sub BluetoothKitLinuxNativeErrorFree Lib "libglib-2.0.so.0" Alias "g_error_free" (failure As Ptr)
+Private Optional Declare Function BluetoothKitLinuxNativeErrorCopy Lib "c" Alias "memcpy" (ByRef record As BluetoothKitLinuxNativeError, source As Ptr, count As UInt64) As Ptr
+Private Optional Declare Function BluetoothKitLinuxNativeParse Lib "libglib-2.0.so.0" Alias "g_variant_parse" (expectedType As Ptr, text As CString, limit As Ptr, endPointer As Ptr, ByRef failure As Ptr) As Ptr
+Private Optional Declare Function BluetoothKitLinuxNativeType Lib "libglib-2.0.so.0" Alias "g_variant_get_type_string" (value As Ptr) As CString
+Private Optional Declare Function BluetoothKitLinuxNativeChild Lib "libglib-2.0.so.0" Alias "g_variant_get_child_value" (value As Ptr, index As UInt64) As Ptr
+Private Optional Declare Function BluetoothKitLinuxNativeCount Lib "libglib-2.0.so.0" Alias "g_variant_n_children" (value As Ptr) As UInt64
+Private Optional Declare Function BluetoothKitLinuxNativeLookup Lib "libglib-2.0.so.0" Alias "g_variant_lookup_value" (dictionary As Ptr, key As CString, expectedType As Ptr) As Ptr
+Private Optional Declare Function BluetoothKitLinuxNativeString Lib "libglib-2.0.so.0" Alias "g_variant_get_string" (value As Ptr, length As Ptr) As CString
+Private Optional Declare Function BluetoothKitLinuxNativeBoolean Lib "libglib-2.0.so.0" Alias "g_variant_get_boolean" (value As Ptr) As Int32
+Private Optional Declare Sub BluetoothKitLinuxNativeUnref Lib "libglib-2.0.so.0" Alias "g_variant_unref" (value As Ptr)
+
+Private Sub BluetoothKitLinuxFail(operation As String, failure As Ptr)
+    If failure = Nil Then
+        Throw New RuntimeException(operation + " failed without a GError")
+    End If
+    Try
+        Dim record As BluetoothKitLinuxNativeError
+        BluetoothKitLinuxNativeErrorCopy(record, failure, 16)
+        Dim message As String = CType(CType(record.Message, CString), String)
+        Throw New RuntimeException(operation + ": " + message, record.Code)
+    Finally
+        BluetoothKitLinuxNativeErrorFree(failure)
+    End Try
+End Sub
+
+Private Function BluetoothKitLinuxStringProperty(properties As Ptr, key As String) As Optional Of String
+    Dim value As Ptr = BluetoothKitLinuxNativeLookup(properties, CType(key, CString), Nil)
+    If value = Nil Then
+        Return None
+    End If
+    Try
+        If CType(BluetoothKitLinuxNativeType(value), String) <> "s" Then
+            Throw New RuntimeException("BlueZ property " + key + " is not a string")
+        End If
+        Return Some(CType(BluetoothKitLinuxNativeString(value, Nil), String))
+    Finally
+        BluetoothKitLinuxNativeUnref(value)
+    End Try
+End Function
+
+Private Function BluetoothKitLinuxBooleanProperty(properties As Ptr, key As String) As Optional Of Boolean
+    Dim value As Ptr = BluetoothKitLinuxNativeLookup(properties, CType(key, CString), Nil)
+    If value = Nil Then
+        Return None
+    End If
+    Try
+        If CType(BluetoothKitLinuxNativeType(value), String) <> "b" Then
+            Throw New RuntimeException("BlueZ property " + key + " is not boolean")
+        End If
+        Return Some(BluetoothKitLinuxNativeBoolean(value) <> 0)
+    Finally
+        BluetoothKitLinuxNativeUnref(value)
+    End Try
+End Function
+
+Private Function BluetoothKitLinuxDecodeReply(reply As Ptr) As Array Of BluetoothKitLinuxBluetoothAdapter
+    If CType(BluetoothKitLinuxNativeType(reply), String) <> "(a{oa{sa{sv}}})" Then
+        Throw New InvalidArgumentException("Expected a BlueZ ObjectManager reply (a{oa{sa{sv}}})")
+    End If
+    Dim records As Array Of BluetoothKitLinuxBluetoothAdapter = []
+    Dim objects As Ptr = BluetoothKitLinuxNativeChild(reply, 0)
+    Try
+        Dim objectCount As Integer = BluetoothKitLinuxNativeCount(objects)
+        For i As Integer = 0 To objectCount - 1
+            Dim pair As Ptr = BluetoothKitLinuxNativeChild(objects, i)
+            Try
+                Dim key As Ptr = BluetoothKitLinuxNativeChild(pair, 0)
+                Dim objectPath As String
+                Try
+                    objectPath = CType(BluetoothKitLinuxNativeString(key, Nil), String)
+                Finally
+                    BluetoothKitLinuxNativeUnref(key)
+                End Try
+                Dim interfaces As Ptr = BluetoothKitLinuxNativeChild(pair, 1)
+                Try
+                    Dim properties As Ptr = BluetoothKitLinuxNativeLookup(interfaces, CType("org.bluez.Adapter1", CString), Nil)
+                    If properties <> Nil Then
+                        Try
+                            Dim address As Optional Of String = BluetoothKitLinuxStringProperty(properties, "Address")
+                            If Not address.HasValue Or address.Value = "" Then
+                                Throw New RuntimeException("BlueZ adapter is missing its Address")
+                            End If
+                            Dim info As New BluetoothKitLinuxBluetoothAdapter
+                            info.ObjectPath = objectPath
+                            info.Address = address.Value
+                            info.Name = BluetoothKitLinuxStringProperty(properties, "Name")
+                            info.Alias = BluetoothKitLinuxStringProperty(properties, "Alias")
+                            info.Powered = BluetoothKitLinuxBooleanProperty(properties, "Powered")
+                            info.Discovering = BluetoothKitLinuxBooleanProperty(properties, "Discovering")
+                            info.Discoverable = BluetoothKitLinuxBooleanProperty(properties, "Discoverable")
+                            Array.Append(records, info)
+                        Finally
+                            BluetoothKitLinuxNativeUnref(properties)
+                        End Try
+                    End If
+                Finally
+                    BluetoothKitLinuxNativeUnref(interfaces)
+                End Try
+            Finally
+                BluetoothKitLinuxNativeUnref(pair)
+            End Try
+        Next
+        Return records
+    Finally
+        BluetoothKitLinuxNativeUnref(objects)
+    End Try
+End Function
+#End If
+
+Public Function BluetoothKitLinuxIsSupported() As Boolean
+#If TargetLinux Then
+    Return True
+#Else
+    Return False
+#End If
+End Function
+
+''' Native libraries only; this does not claim that system D-Bus or BlueZ is running.
+Public Function BluetoothKitLinuxIsAvailable() As Boolean
+#If TargetLinux Then
+    Return System.IsLibraryAvailable("libgio-2.0.so.0") And System.IsLibraryAvailable("libglib-2.0.so.0") And System.IsLibraryAvailable("libgobject-2.0.so.0")
+#Else
+    Return False
+#End If
+End Function
+
+''' Decode a recorded GetManagedObjects reply in GLib's GVariant text notation.
+Public Function BluetoothKitLinuxDecodeManagedObjects(text As String) As Array Of BluetoothKitLinuxBluetoothAdapter
+#If TargetLinux Then
+    Dim failure As Ptr = Nil
+    Dim reply As Ptr = BluetoothKitLinuxNativeParse(Nil, CType(text, CString), Nil, Nil, failure)
+    If reply = Nil Then
+        BluetoothKitLinuxFail("Parsing Bluetooth snapshot", failure)
+    End If
+    Try
+        Return BluetoothKitLinuxDecodeReply(reply)
+    Finally
+        BluetoothKitLinuxNativeUnref(reply)
+    End Try
+#Else
+    Throw New UnsupportedOperationException("linuxbluetooth requires Linux")
+#End If
+End Function
+
+''' Query existing adapters once. Missing bus/service throws; zero adapters returns [].
+Public Function BluetoothKitLinuxAdapters() As Array Of BluetoothKitLinuxBluetoothAdapter
+#If TargetLinux Then
+    Dim failure As Ptr = Nil
+    Dim connection As Ptr = BluetoothKitLinuxNativeBus(1, Nil, failure)
+    If connection = Nil Then
+        BluetoothKitLinuxFail("Connecting to system D-Bus", failure)
+    End If
+    Try
+        Dim reply As Ptr = BluetoothKitLinuxNativeCall(connection, CType("org.bluez", CString), CType("/", CString), CType("org.freedesktop.DBus.ObjectManager", CString), CType("GetManagedObjects", CString), Nil, Nil, 1, 5000, Nil, failure)
+        If reply = Nil Then
+            BluetoothKitLinuxFail("Reading BlueZ adapters", failure)
+        End If
+        Try
+            Return BluetoothKitLinuxDecodeReply(reply)
+        Finally
+            BluetoothKitLinuxNativeUnref(reply)
+        End Try
+    Finally
+        BluetoothKitLinuxNativeObjectUnref(connection)
+    End Try
+#Else
+    Throw New UnsupportedOperationException("linuxbluetooth requires Linux")
+#End If
+End Function
+
+Public Function BluetoothKitLinuxBusAvailable() As Boolean
+#If TargetLinux Then
+    If Not BluetoothKitLinuxIsAvailable() Then
+        Return False
+    End If
+    Dim failure As Ptr = Nil
+    Dim connection As Ptr = BluetoothKitLinuxNativeBus(1, Nil, failure)
+    If connection = Nil Then
+        If failure <> Nil Then
+            BluetoothKitLinuxNativeErrorFree(failure)
+        End If
+        Return False
+    End If
+    BluetoothKitLinuxNativeObjectUnref(connection)
+    Return True
+#Else
+    Return False
+#End If
+End Function

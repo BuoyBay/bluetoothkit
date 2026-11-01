@@ -1,0 +1,94 @@
+#If TargetLinux Then
+Import BluetoothKitLinuxBackend
+#ElseIf TargetWindows Then
+Import BluetoothKitWindowsBackend
+#End If
+Public Class BluetoothAdapterInfo
+    Private Property mId As String
+    Public Property Id As String
+        Get
+            Return mId
+        End Get
+    End Property
+    Private Property mAddress As Optional Of String
+    Public Property Address As Optional Of String
+        Get
+            Return mAddress
+        End Get
+    End Property
+    Private Property mName As Optional Of String
+    Public Property Name As Optional Of String
+        Get
+            Return mName
+        End Get
+    End Property
+    Private Property mManufacturer As Optional Of String
+    Public Property Manufacturer As Optional Of String
+        Get
+            Return mManufacturer
+        End Get
+    End Property
+    Private Property mIsPowered As Optional Of Boolean
+    Public Property IsPowered As Optional Of Boolean
+        Get
+            Return mIsPowered
+        End Get
+    End Property
+    Private Property mIsDiscoverable As Optional Of Boolean
+    Public Property IsDiscoverable As Optional Of Boolean
+        Get
+            Return mIsDiscoverable
+        End Get
+    End Property
+    Private Property mIsDiscovering As Optional Of Boolean
+    Public Property IsDiscovering As Optional Of Boolean
+        Get
+            Return mIsDiscovering
+        End Get
+    End Property
+    Public Sub Constructor(vId As String, vAddress As Optional Of String, vName As Optional Of String, vManufacturer As Optional Of String, vIsPowered As Optional Of Boolean, vIsDiscoverable As Optional Of Boolean, vIsDiscovering As Optional Of Boolean)
+        mId = vId
+        mAddress = vAddress
+        mName = vName
+        mManufacturer = vManufacturer
+        mIsPowered = vIsPowered
+        mIsDiscoverable = vIsDiscoverable
+        mIsDiscovering = vIsDiscovering
+    End Sub
+End Class
+''' Read-only compile-target backend test; no runtime I/O.
+Public Function BluetoothAdapterDiscoverySupported() As Boolean
+#If TargetLinux Then
+    Return True
+#ElseIf TargetWindows Then
+    Return True
+#Else
+    Return False
+#End If
+End Function
+''' Read-only: Linux connects to system D-Bus and releases its reference (may block; use off UI thread); Windows probes libraries. Does not prove BlueZ or radio presence.
+Public Function BluetoothAdapterDiscoveryAvailable() As Boolean
+#If TargetLinux Then
+    Return BluetoothKitLinuxBusAvailable()
+#ElseIf TargetWindows Then
+    Return BluetoothKitWindowsIsAvailable()
+#Else
+    Return False
+#End If
+End Function
+''' Read-only, may block on system D-Bus (5 second call timeout); use off UI thread. No radio scan, pairing or connection.
+Public Function BluetoothAdapters() As Array Of BluetoothAdapterInfo
+    Dim results As Array Of BluetoothAdapterInfo = []
+#If TargetLinux Then
+    For Each item In BluetoothKitLinuxAdapters()
+        Array.Append(results, New BluetoothAdapterInfo(item.ObjectPath, Some(item.Address), item.Name, None, item.Powered, item.Discoverable, item.Discovering))
+    Next
+#ElseIf TargetWindows Then
+    For Each item In BluetoothKitWindowsPresentRadios()
+        Array.Append(results, New BluetoothAdapterInfo(item.InstanceId, None, item.Name, item.Manufacturer, None, None, None))
+    Next
+#Else
+    Throw New UnsupportedOperationException("Bluetooth adapter discovery is unsupported on this target")
+#End If
+    Return results
+End Function

@@ -1,0 +1,141 @@
+' Present Bluetooth radio Plug and Play metadata; no device handles are opened.
+Public Class BluetoothKitWindowsBluetoothRadio
+    Public Property InstanceId As String
+    Public Property Name As Optional Of String
+    Public Property Manufacturer As Optional Of String
+    Public Property DeviceNode As Integer
+End Class
+
+#If TargetWindows Then
+' SP_DEVINFO_DATA is 32 bytes on x64/ARM64 (DWORD, GUID, DWORD, ULONG_PTR).
+Sequential Structure BluetoothKitWindowsNativeBluetoothDeviceInfo
+    Size As UInt32
+    GuidA As UInt32
+    GuidB As UInt32
+    GuidC As UInt32
+    GuidD As UInt32
+    DeviceNode As UInt32
+    Reserved As UInt64
+End Structure
+Private Optional Declare Function BluetoothKitWindowsBluetoothNativeSet Lib "setupapi" Alias "SetupDiGetClassDevsW" (classGuid As Ptr, enumeratorName As Ptr, parentWindow As Ptr, options As UInt32) As Ptr
+Private Optional Declare Function BluetoothKitWindowsBluetoothNativeNext Lib "setupapi" Alias "SetupDiEnumDeviceInfo" (infoSet As Ptr, index As UInt32, ByRef data As BluetoothKitWindowsNativeBluetoothDeviceInfo) As Int32
+Private Optional Declare Function BluetoothKitWindowsBluetoothNativeId Lib "setupapi" Alias "SetupDiGetDeviceInstanceIdW" (infoSet As Ptr, ByRef data As BluetoothKitWindowsNativeBluetoothDeviceInfo, buffer As Ptr, capacity As UInt32, ByRef required As UInt32) As Int32
+Private Optional Declare Function BluetoothKitWindowsBluetoothNativeProperty Lib "setupapi" Alias "SetupDiGetDeviceRegistryPropertyW" (infoSet As Ptr, ByRef data As BluetoothKitWindowsNativeBluetoothDeviceInfo, propertyId As UInt32, ByRef valueType As UInt32, buffer As Ptr, capacity As UInt32, ByRef required As UInt32) As Int32
+Private Optional Declare Function BluetoothKitWindowsBluetoothNativeDestroy Lib "setupapi" Alias "SetupDiDestroyDeviceInfoList" (infoSet As Ptr) As Int32
+Private Optional Declare Function BluetoothKitWindowsBluetoothNativeError Lib "kernel32" Alias "GetLastError" () As UInt32
+
+Private Sub BluetoothKitWindowsBluetoothFail(operation As String)
+    Dim code As Integer = BluetoothKitWindowsBluetoothNativeError()
+    Throw New RuntimeException(operation + " failed (Win32 error " + Str(code) + ")", code)
+End Sub
+
+Private Function BluetoothKitWindowsBluetoothBuffer() As Bytes
+    Dim allocated As New Bytes(65536)
+    For i As Integer = 1 To 65536
+        allocated.Append(0)
+    Next
+    Return allocated
+End Function
+
+Private Function BluetoothKitWindowsBluetoothDecodeWide(value As Bytes, byteCount As Integer) As String
+    If byteCount < 2 Or byteCount > value.Count Or byteCount Mod 2 <> 0 Then
+        Throw New RuntimeException("SetupAPI returned invalid UTF-16 buffer length")
+    End If
+    Dim units As Integer = byteCount \ 2
+    For i As Integer = 0 To units - 1
+        If value.Item(i * 2) = 0 And value.Item(i * 2 + 1) = 0 Then
+            Dim exact As New Bytes(i * 2)
+            exact.Append(value.DataPtr(), i * 2)
+            Return String.FromUTF16LE(exact)
+        End If
+    Next
+    Throw New RuntimeException("SetupAPI returned unterminated UTF-16 text")
+End Function
+
+Private Function BluetoothKitWindowsBluetoothReadId(infoSet As Ptr, data As BluetoothKitWindowsNativeBluetoothDeviceInfo) As String
+    Dim value As Bytes = BluetoothKitWindowsBluetoothBuffer()
+    Dim required As UInt32 = 0
+    If BluetoothKitWindowsBluetoothNativeId(infoSet, data, value.DataPtr(), 32768, required) = 0 Then
+        BluetoothKitWindowsBluetoothFail("SetupDiGetDeviceInstanceIdW")
+    End If
+    Return BluetoothKitWindowsBluetoothDecodeWide(value, required * 2)
+End Function
+
+Private Function BluetoothKitWindowsBluetoothReadText(infoSet As Ptr, data As BluetoothKitWindowsNativeBluetoothDeviceInfo, propertyId As UInt32) As Optional Of String
+    Dim value As Bytes = BluetoothKitWindowsBluetoothBuffer()
+    Dim required As UInt32 = 0
+    Dim valueType As UInt32 = 0
+    If BluetoothKitWindowsBluetoothNativeProperty(infoSet, data, propertyId, valueType, value.DataPtr(), 65536, required) = 0 Then
+        Dim code As Integer = BluetoothKitWindowsBluetoothNativeError()
+        If code = 13 Then
+            Return None
+        End If
+        Throw New RuntimeException("SetupDiGetDeviceRegistryPropertyW failed (Win32 error " + Str(code) + ")", code)
+    End If
+    If valueType <> 1 Then
+        Throw New RuntimeException("SetupAPI text property was not REG_SZ")
+    End If
+    Return Some(BluetoothKitWindowsBluetoothDecodeWide(value, required))
+End Function
+#End If
+
+Public Function BluetoothKitWindowsIsSupported() As Boolean
+#If TargetWindows Then
+    Return True
+#Else
+    Return False
+#End If
+End Function
+
+''' Library availability only; an installed backend can have no present hardware.
+Public Function BluetoothKitWindowsIsAvailable() As Boolean
+#If TargetWindows Then
+    Return System.IsLibraryAvailable("setupapi") And System.IsLibraryAvailable("kernel32")
+#Else
+    Return False
+#End If
+End Function
+
+''' One owned record per present Bluetooth radio device node; discovery can race hotplug.
+Public Function BluetoothKitWindowsPresentRadios() As Array Of BluetoothKitWindowsBluetoothRadio
+#If TargetWindows Then
+    ' GUID_BTHPORT_DEVICE_INTERFACE: 0850302A-B344-4FDA-9BE9-90576B8D46F0.
+    Dim identifier As Bytes = Bytes.FromHex("2a30500844b3da4f9be990576b8d46f0").Value
+    ' DIGCF_PRESENT | DIGCF_DEVICEINTERFACE.
+    BluetoothKitWindowsBluetoothNativeError()
+    Dim infoSet As Ptr = BluetoothKitWindowsBluetoothNativeSet(identifier.DataPtr(), Nil, Nil, 18)
+    If CType(infoSet, Integer) = -1 Then
+        BluetoothKitWindowsBluetoothFail("SetupDiGetClassDevsW")
+    End If
+    Dim results As Array Of BluetoothKitWindowsBluetoothRadio = []
+    Try
+        Dim index As UInt32 = 0
+        While True
+            Dim data As BluetoothKitWindowsNativeBluetoothDeviceInfo
+            data.Size = 32
+            If BluetoothKitWindowsBluetoothNativeNext(infoSet, index, data) = 0 Then
+                Dim code As Integer = BluetoothKitWindowsBluetoothNativeError()
+                If code = 259 Then
+                    Exit While
+                End If
+                Throw New RuntimeException("SetupDiEnumDeviceInfo failed (Win32 error " + Str(code) + ")", code)
+            End If
+            Dim entry As New BluetoothKitWindowsBluetoothRadio
+            entry.InstanceId = BluetoothKitWindowsBluetoothReadId(infoSet, data)
+            entry.Name = BluetoothKitWindowsBluetoothReadText(infoSet, data, 12)
+            If Not entry.Name.HasValue Then
+                entry.Name = BluetoothKitWindowsBluetoothReadText(infoSet, data, 0)
+            End If
+            entry.Manufacturer = BluetoothKitWindowsBluetoothReadText(infoSet, data, 11)
+            entry.DeviceNode = data.DeviceNode
+            Array.Append(results, entry)
+            index += 1
+        End While
+        Return results
+    Finally
+        BluetoothKitWindowsBluetoothNativeDestroy(infoSet)
+    End Try
+#Else
+    Throw New UnsupportedOperationException("WinBluetooth requires Windows")
+#End If
+End Function
