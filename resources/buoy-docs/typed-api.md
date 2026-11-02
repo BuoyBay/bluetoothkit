@@ -47,8 +47,6 @@ Generated from the package source declarations. Platform guards are shown where 
 
 Returns: no value.
 
-## BluetoothKit functions
-
 ### BluetoothAdapterDiscoverySupported
 
 `Public Function BluetoothAdapterDiscoverySupported() As Boolean`
@@ -118,8 +116,6 @@ No parameters.
 | `Domain` | `UInt32` | — | — |
 | `Code` | `Int32` | — | — |
 | `Message` | `Ptr` | — | — |
-
-## BluetoothKitLinuxBackend functions
 
 ### BluetoothKitLinuxIsSupported
 
@@ -219,8 +215,6 @@ No parameters.
 | `GuidD` | `UInt32` | — | — |
 | `DeviceNode` | `UInt32` | — | — |
 | `Reserved` | `UInt64` | — | — |
-
-## BluetoothKitWindowsBackend functions
 
 ### BluetoothKitWindowsIsSupported
 

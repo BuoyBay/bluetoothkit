@@ -1,6 +1,6 @@
-# Discover Bluetooth adapters through native OS APIs
+# Discover local Bluetooth devices through native OS APIs
 
-Import `bluetoothkit` (or `bluetoothkit.BluetoothKit`). This focused package owns `BluetoothAdapterDiscoverySupported()`, `BluetoothAdapterDiscoveryAvailable()` and `BluetoothAdapters() As Array Of BluetoothAdapterInfo`. It has no package, container, or external source dependency. Backend modules are implementation details and are non-public imports; their module-scope symbols are globally prefixed to avoid collisions.
+Import `bluetoothkit` (or `bluetoothkit.BluetoothKit`). This focused package owns `BluetoothAdapterDiscoverySupported()`, `BluetoothAdapterDiscoveryAvailable()` and `BluetoothAdapters() As Array Of BluetoothAdapterInfo`. It lists the host's Bluetooth radios as local devices. It does not scan nearby peripherals, and it does not pair or connect. It has no package, container, or external source dependency. Backend modules are implementation details and are non-public imports; their module-scope symbols are globally prefixed to avoid collisions.
 
 Enumeration is read-only. Empty arrays mean successful enumeration with no results; missing services/libraries, denied access and native errors throw. Missing optional fields are None, present empty strings are Some(""). No absent numeric or powered state is fabricated as zero/False. Snapshot properties are read-only owned copies. Native IDs are observations in their backend namespace, not cross-platform stable identities or openable handles.
 
@@ -45,7 +45,6 @@ On your own machine, install Buoy and run:
 buoy ai init --both
 ```
 
-The generated agent files and editor settings stay local and are ignored by Git.
 
 ## Contributing
 
