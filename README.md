@@ -1,4 +1,4 @@
-# Local Bluetooth devices
+# List local Bluetooth devices
 
 Import `bluetoothkit` (or `bluetoothkit.BluetoothKit`). This focused package owns `BluetoothAdapterDiscoverySupported()`, `BluetoothAdapterDiscoveryAvailable()` and `BluetoothAdapters() As Array Of BluetoothAdapterInfo`. It lists the host's Bluetooth radios as local devices. It does not scan nearby peripherals, and it does not pair or connect. It has no package, container, or external source dependency. Backend modules are implementation details and are non-public imports; their module-scope symbols are globally prefixed to avoid collisions.
 
